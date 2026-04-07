@@ -175,12 +175,17 @@ app.post('/api/mark-tried', async (req, res) => {
 app.post('/api/analyse-reply', async (req, res) => {
   const { replyText } = req.body;
   const prompt = `A parent sent this message to their child's teacher: "${replyText}"
-Analyse and respond in EXACT JSON (no markdown):
+
+Analyse carefully. This may be a mixed message combining curriculum AND non-curriculum topics.
+
+Respond in EXACT JSON (no markdown):
 {
   "sentiment": "positive" or "question" or "concern",
-  "summary": "One sentence summary in plain English",
-  "suggestedResponse": "A warm 2-sentence suggested reply for the teacher",
-  "urgency": "low" or "medium" or "high"
+  "summary": "One sentence summary of the curriculum-relevant part only",
+  "suggestedResponse": "A warm 2-sentence reply addressing the curriculum part. If there is a non-curriculum complaint (bus, admin, facilities), add: 'For [non-curriculum topic], please contact the school office directly.'",
+  "urgency": "low" or "medium" or "high",
+  "hasMixedContent": true or false,
+  "nonCurriculumFlag": "Brief description of any non-curriculum content, or null"
 }`;
   try {
     const parsed = JSON.parse(await curricuLLM(prompt));
@@ -189,7 +194,6 @@ Analyse and respond in EXACT JSON (no markdown):
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
 app.post('/api/translate', async (req, res) => {
   const { text, targetLanguage } = req.body;
   try {
