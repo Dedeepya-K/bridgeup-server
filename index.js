@@ -466,6 +466,43 @@ Return ONLY the definition. No labels, no JSON, no punctuation at start.`;
   }
 });
 
+app.get('/api/unengaged/:teacherId', async (req, res) => {
+  try {
+    const { data: messages } = await supabase
+      .from('messages').select('id').eq('teacher_id', req.params.teacherId);
+    if (!messages?.length) return res.json({ success: true, data: [] });
+
+    const messageIds = messages.map(m => m.id);
+    const { data: recipients } = await supabase
+      .from('message_recipients')
+      .select('parent_id, profiles(name, child_name, language)')
+      .in('message_id', messageIds);
+
+    const { data: replies } = await supabase
+      .from('replies').select('parent_id').in('message_id', messageIds);
+
+    const repliedParentIds = new Set(replies?.map(r => r.parent_id) || []);
+    const seen = new Set();
+    const unengaged = [];
+
+    recipients?.forEach(r => {
+      if (!repliedParentIds.has(r.parent_id) && !seen.has(r.parent_id)) {
+        seen.add(r.parent_id);
+        unengaged.push({
+          parentId: r.parent_id,
+          name: r.profiles?.name,
+          childName: r.profiles?.child_name,
+          language: r.profiles?.language
+        });
+      }
+    });
+
+    res.json({ success: true, data: unengaged });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
