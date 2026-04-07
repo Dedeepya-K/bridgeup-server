@@ -614,24 +614,34 @@ app.post('/api/text-to-speech', async (req, res) => {
   const { text, language } = req.body;
   const voiceMap = { 'hi': 'hi-IN-SwaraNeural', 'zh-Hans': 'zh-CN-XiaoxiaoNeural', 'en': 'en-AU-NatashaNeural', 'te': 'te-IN-ShrutiNeural', 'ar': 'ar-SA-ZariyahNeural', 'vi': 'vi-VN-HoaiMyNeural' };
   const voice = voiceMap[language] || 'en-AU-NatashaNeural';
-  const ssml = `<speak version='1.0' xml:lang='${language || 'en'}'><voice name='${voice}'>${text.slice(0, 500)}</voice></speak>`;
+  const ssml = `<speak version='1.0' xml:lang='${language || 'en'}'><voice name='${voice}'>${text.slice(0, 400).replace(/[<>&'"]/g, ' ')}</voice></speak>`;
   try {
     const tokenRes = await axios.post(
       `https://${process.env.AZURE_TRANSLATOR_REGION}.api.cognitive.microsoft.com/sts/v1.0/issuetoken`,
-      null, { headers: { 'Ocp-Apim-Subscription-Key': process.env.AZURE_TRANSLATOR_KEY } }
+      null,
+      { headers: { 'Ocp-Apim-Subscription-Key': process.env.AZURE_TRANSLATOR_KEY, 'Content-Type': 'application/x-www-form-urlencoded' } }
     );
+    const token = tokenRes.data;
     const audioRes = await axios.post(
       `https://${process.env.AZURE_TRANSLATOR_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`,
       ssml,
-      { headers: { 'Authorization': `Bearer ${tokenRes.data}`, 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-16khz-32kbitrate-mono-mp3' }, responseType: 'arraybuffer' }
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/ssml+xml',
+          'X-Microsoft-OutputFormat': 'audio-16khz-32kbitrate-mono-mp3',
+          'User-Agent': 'BridgeUp'
+        },
+        responseType: 'arraybuffer'
+      }
     );
     res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': audioRes.data.byteLength });
     res.send(Buffer.from(audioRes.data));
   } catch (err) {
+    console.error('TTS error:', err.response?.status, err.response?.data?.toString() || err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
 // ─── WEEKLY REPORT ────────────────────────────────────────────────────────────
 app.get('/api/weekly-report/:teacherId', async (req, res) => {
   try {
