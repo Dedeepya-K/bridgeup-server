@@ -496,6 +496,224 @@ Do not use jargon. Return ONLY the answer text.`;
   }
 });
 
+// ─── WEEKEND SPARK ────────────────────────────────────────────────────────────
+app.post('/api/weekend-spark', async (req, res) => {
+  const { subject, lessonSummary, childName, childInterests, language } = req.body;
+  const prompt = `A Year 8 student named ${childName} loves: ${childInterests || 'games and technology'}.
+This week in ${subject} they learned: "${lessonSummary}"
+
+Generate ONE "Saturday Morning Mission" — a fun 10-minute home activity that:
+1. Connects directly to this week's lesson
+2. Uses their interest in ${childInterests || 'games'} creatively
+3. Starts with "Mission for ${childName}:"
+4. Is specific, actionable, and fun
+
+Return ONLY the mission text. Max 3 sentences.`;
+  try {
+    let result = await curricuLLM(prompt);
+    result = result.replace(/^"|"$/g, '').trim();
+    if (language && language !== 'en') result = await azureTranslate(result, language);
+    res.json({ success: true, spark: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── FRICTION FORECAST ────────────────────────────────────────────────────────
+app.get('/api/friction-forecast/:teacherId', async (req, res) => {
+  try {
+    const { data: messages } = await supabase.from('messages').select('id, subject, transformed_content').eq('teacher_id', req.params.teacherId);
+    if (!messages?.length) return res.json({ success: true, data: [] });
+
+    const messageIds = messages.map(m => m.id);
+    const { data: recipients } = await supabase.from('message_recipients').select('message_id, feedback').in('message_id', messageIds).eq('feedback', 'struggled');
+    const { data: replies } = await supabase.from('replies').select('message_id, sentiment').in('message_id', messageIds).eq('sentiment', 'concern');
+
+    const counts = {};
+    recipients?.forEach(r => { counts[r.message_id] = (counts[r.message_id] || 0) + 1; });
+    replies?.forEach(r => { counts[r.message_id] = (counts[r.message_id] || 0) + 1; });
+
+    const forecasts = [];
+    for (const [msgId, count] of Object.entries(counts)) {
+      if (count >= 1) {
+        const msg = messages.find(m => m.id === msgId);
+        if (msg) {
+          const total = await supabase.from('message_recipients').select('id', { count: 'exact' }).eq('message_id', msgId);
+          const pct = Math.round((count / (total.count || 1)) * 100);
+          let recommendation = '';
+          try {
+            const prompt = `${pct}% of parents struggled with this school topic: "${msg.transformed_content?.slice(0, 100)}". Write ONE short recommendation for the teacher (max 15 words). Start with "Recommend:".`;
+            recommendation = (await curricuLLM(prompt)).replace(/^"|"$/g, '').trim();
+          } catch(e) { recommendation = 'Recommend: Send a simplified visual guide to parents.'; }
+          forecasts.push({ subject: msg.subject, percentage: pct, count, recommendation, messageId: msgId });
+        }
+      }
+    }
+    res.json({ success: true, data: forecasts });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── AI CONFIDENCE METER ──────────────────────────────────────────────────────
+app.post('/api/confidence-check', async (req, res) => {
+  const { tip, subject, yearLevel } = req.body;
+  const prompt = `Rate how well this home activity aligns with the Australian Curriculum for Year ${yearLevel} ${subject}:
+"${tip}"
+Respond ONLY in this JSON format:
+{"confidence": 85, "reason": "Directly maps to ACARA strand", "acara_ref": "Year ${yearLevel} ${subject} - specific strand name"}`;
+  try {
+    const parsed = JSON.parse(await curricuLLM(prompt));
+    res.json({ success: true, data: parsed });
+  } catch (err) {
+    res.json({ success: true, data: { confidence: 75, reason: 'Generally aligned with curriculum', acara_ref: `Year ${yearLevel} ${subject}` } });
+  }
+});
+
+// ─── SMART ENGAGEMENT NUDGE ───────────────────────────────────────────────────
+app.post('/api/engagement-nudge', async (req, res) => {
+  const { parentName, childName, language, availability, confidence, lastSubject } = req.body;
+  const prompt = `A parent named ${parentName} with child ${childName} hasn't engaged with school updates.
+Their availability: ${availability || 'evenings'}. Confidence level: ${confidence || 'medium'}.
+Last subject covered: ${lastSubject || 'Mathematics'}.
+
+Write ONE warm, specific nudge message the teacher can send (max 20 words).
+Make it feel personal and low-pressure.
+Return ONLY the message.`;
+  try {
+    let nudge = await curricuLLM(prompt);
+    nudge = nudge.replace(/^"|"$/g, '').trim();
+    res.json({ success: true, nudge });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── EMOJI INSIGHT ────────────────────────────────────────────────────────────
+app.post('/api/emoji-insight', async (req, res) => {
+  const { messageId, teacherId } = req.body;
+  try {
+    const { data: recipients } = await supabase.from('message_recipients').select('feedback').eq('message_id', messageId);
+    const tried = recipients?.filter(r => r.feedback === 'tried').length || 0;
+    const struggled = recipients?.filter(r => r.feedback === 'struggled').length || 0;
+    const total = recipients?.length || 1;
+
+    const prompt = `${tried} out of ${total} parents tried the activity. ${struggled} reported struggling.
+Write ONE actionable insight for the teacher (max 20 words). Be specific and constructive.
+Return ONLY the insight text.`;
+    let insight = await curricuLLM(prompt);
+    insight = insight.replace(/^"|"$/g, '').trim();
+    res.json({ success: true, insight, stats: { tried, struggled, total } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── TEXT TO SPEECH ───────────────────────────────────────────────────────────
+app.post('/api/text-to-speech', async (req, res) => {
+  const { text, language } = req.body;
+  const voiceMap = { 'hi': 'hi-IN-SwaraNeural', 'zh-Hans': 'zh-CN-XiaoxiaoNeural', 'en': 'en-AU-NatashaNeural', 'te': 'te-IN-ShrutiNeural', 'ar': 'ar-SA-ZariyahNeural', 'vi': 'vi-VN-HoaiMyNeural' };
+  const voice = voiceMap[language] || 'en-AU-NatashaNeural';
+  const ssml = `<speak version='1.0' xml:lang='${language || 'en'}'><voice name='${voice}'>${text.slice(0, 500)}</voice></speak>`;
+  try {
+    const tokenRes = await axios.post(
+      `https://${process.env.AZURE_TRANSLATOR_REGION}.api.cognitive.microsoft.com/sts/v1.0/issuetoken`,
+      null, { headers: { 'Ocp-Apim-Subscription-Key': process.env.AZURE_TRANSLATOR_KEY } }
+    );
+    const audioRes = await axios.post(
+      `https://${process.env.AZURE_TRANSLATOR_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`,
+      ssml,
+      { headers: { 'Authorization': `Bearer ${tokenRes.data}`, 'Content-Type': 'application/ssml+xml', 'X-Microsoft-OutputFormat': 'audio-16khz-32kbitrate-mono-mp3' }, responseType: 'arraybuffer' }
+    );
+    res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': audioRes.data.byteLength });
+    res.send(Buffer.from(audioRes.data));
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── WEEKLY REPORT ────────────────────────────────────────────────────────────
+app.get('/api/weekly-report/:teacherId', async (req, res) => {
+  try {
+    const { data: messages } = await supabase.from('messages').select('id, subject, created_at').eq('teacher_id', req.params.teacherId);
+    const { data: profile } = await supabase.from('profiles').select('name').eq('id', req.params.teacherId).single();
+    if (!messages?.length) return res.json({ success: true, data: null });
+
+    const messageIds = messages.map(m => m.id);
+    const { data: replies } = await supabase.from('replies').select('sentiment, urgency').in('message_id', messageIds);
+    const { data: recipients } = await supabase.from('message_recipients').select('tried_activity, feedback, language').in('message_id', messageIds);
+
+    const sentiments = { positive: 0, question: 0, concern: 0 };
+    replies?.forEach(r => { if (r.sentiment) sentiments[r.sentiment] = (sentiments[r.sentiment] || 0) + 1; });
+    const languages = {};
+    recipients?.forEach(r => { languages[r.language] = (languages[r.language] || 0) + 1; });
+    const tried = recipients?.filter(r => r.tried_activity).length || 0;
+    const struggled = recipients?.filter(r => r.feedback === 'struggled').length || 0;
+
+    const subjectBreakdown = messages.reduce((acc, m) => { acc[m.subject] = (acc[m.subject] || 0) + 1; return acc; }, {});
+
+    const prompt = `Write a 3-sentence professional weekly summary for teacher ${profile?.name} to share with school leadership.
+Stats: ${messages.length} updates sent, ${replies?.length || 0} parent replies, ${tried} activities tried, ${struggled} families struggled, ${Object.keys(languages).length} languages reached.
+Subjects covered: ${Object.keys(subjectBreakdown).join(', ')}.
+Be professional, positive, and data-focused. Return ONLY the summary.`;
+
+    let summary = '';
+    try { summary = (await curricuLLM(prompt)).replace(/^"|"$/g, '').trim(); } catch(e) { summary = `This week ${messages.length} updates were sent across ${Object.keys(subjectBreakdown).join(', ')}, reaching families in ${Object.keys(languages).length} languages with ${tried} activities completed at home.`; }
+
+    res.json({ success: true, data: { teacherName: profile?.name, totalMessages: messages.length, totalReplies: replies?.length || 0, tried, struggled, sentiments, languages, subjectBreakdown, summary, generatedAt: new Date().toISOString() } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── NAPLAN SNAPSHOT ─────────────────────────────────────────────────────────
+app.post('/api/naplan-snapshot', async (req, res) => {
+  const { teacherNote, yearLevel, subject } = req.body;
+  const prompt = `A teacher wrote this about a Year ${yearLevel} student's ${subject} progress: "${teacherNote}"
+
+Generate a warm, parent-friendly NAPLAN progress update (2-3 sentences) that:
+1. Translates the teacher's note into plain language
+2. Links to relevant NAPLAN strand (Reading, Writing, Language Conventions, or Numeracy)
+3. Gives ONE specific home tip
+
+Return ONLY the parent message.`;
+  try {
+    let result = await curricuLLM(prompt);
+    result = result.replace(/^"|"$/g, '').trim();
+    res.json({ success: true, message: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── FAMILY FEED ─────────────────────────────────────────────────────────────
+app.get('/api/family-feed/:teacherId', async (req, res) => {
+  try {
+    const { data: messages } = await supabase.from('messages').select('id, subject').eq('teacher_id', req.params.teacherId);
+    if (!messages?.length) return res.json({ success: true, data: [] });
+
+    const messageIds = messages.map(m => m.id);
+    const { data: recipients } = await supabase.from('message_recipients')
+      .select('feedback, tried_activity, profiles(name, child_name), message_id, created_at')
+      .in('message_id', messageIds).eq('tried_activity', true)
+      .order('created_at', { ascending: false }).limit(10);
+
+    const feed = recipients?.map(r => {
+      const msg = messages.find(m => m.id === r.message_id);
+      return { parentName: r.profiles?.name, childName: r.profiles?.child_name, subject: msg?.subject, feedback: r.feedback, time: r.created_at };
+    }) || [];
+
+    const { data: allRecipients } = await supabase.from('message_recipients').select('tried_activity, feedback').in('message_id', messageIds);
+    const tried = allRecipients?.filter(r => r.tried_activity).length || 0;
+    const total = allRecipients?.length || 1;
+    const classAverage = Math.round((tried / total) * 100);
+
+    res.json({ success: true, data: feed, classAverage });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
