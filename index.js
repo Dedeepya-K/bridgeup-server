@@ -691,6 +691,30 @@ app.get('/api/family-feed/:teacherId', async (req, res) => {
   }
 });
 
+
+// ─── GROWTH MINDSET PROMPT ────────────────────────────────────────────────────
+app.post('/api/growth-mindset-prompt', async (req, res) => {
+  const { tip, childName, subject, language } = req.body;
+  const prompt = `A parent is helping their child with this school activity: "${tip}"
+The child's name is ${childName} and they are studying ${subject}.
+
+Generate ONE short "Growth Mindset Script" for the parent to use if their child gets stuck or frustrated.
+Format:
+- Instead of saying: [common discouraging phrase]
+- Try saying: [Dweck growth mindset alternative that praises effort, not ability]
+
+Keep it warm, practical, and under 25 words total.
+Return ONLY the two lines, nothing else.`;
+  try {
+    let result = await curricuLLM(prompt);
+    result = result.replace(/^"|"$/g, '').trim();
+    if (language && language !== 'en') result = await azureTranslate(result, language);
+    res.json({ success: true, prompt: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
