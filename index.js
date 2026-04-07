@@ -9,10 +9,11 @@ app.use(cors({
   origin: [
     'http://localhost:5173',
     'https://bridgeup-client-iwk1e4xu7-dedeepya-ks-projects.vercel.app',
-    'https://bridgeup-server-production.up.railway.app'
+    'https://bridgeup-client.vercel.app'
   ],
   credentials: true
 }));
+
 app.use(express.json());
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
