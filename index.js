@@ -749,35 +749,32 @@ app.get('/api/emoji-insights/:teacherId', async (req, res) => {
       .from('message_recipients').select('message_id, feedback')
       .in('message_id', messageIds).not('feedback', 'is', null);
 
-    const grouped = {};
-    recipients?.forEach(r => {
-      if (!grouped[r.message_id]) grouped[r.message_id] = { tried: 0, struggled: 0 };
-      if (r.feedback === 'tried') grouped[r.message_id].tried++;
-      if (r.feedback === 'struggled') grouped[r.message_id].struggled++;
+    if (!recipients?.length) return res.json({ success: true, data: [] });
+
+    // Group by SUBJECT instead of message
+    const bySubject = {};
+    recipients.forEach(r => {
+      const msg = messages.find(m => m.id === r.message_id);
+      const subject = msg?.subject || 'General';
+      if (!bySubject[subject]) bySubject[subject] = { tried: 0, struggled: 0 };
+      if (r.feedback === 'tried') bySubject[subject].tried++;
+      if (r.feedback === 'struggled') bySubject[subject].struggled++;
     });
 
-    const insights = [];
-    for (const [msgId, counts] of Object.entries(grouped)) {
-      const msg = messages.find(m => m.id === msgId);
+    const insights = Object.entries(bySubject).map(([subject, counts]) => {
       const total = counts.tried + counts.struggled;
-      if (total > 0) {
-        const pct = Math.round((counts.tried / total) * 100);
-        let insight = '';
-        try {
-          const prompt = `${counts.tried} parents completed the ${msg?.subject} activity, ${counts.struggled} struggled. Write ONE actionable insight for the teacher in max 15 words. Be specific.`;
-          insight = (await curricuLLM(prompt)).replace(/^"|"$/g, '').trim();
-        } catch(e) {
-          insight = `${pct}% completion rate — ${counts.struggled > counts.tried ? 'consider simplifying next time' : 'strong engagement this week'}`;
-        }
-        insights.push({ subject: msg?.subject, tried: counts.tried, struggled: counts.struggled, pct, insight, messageId: msgId });
-      }
-    }
+      const pct = total > 0 ? Math.round((counts.tried / total) * 100) : 0;
+      const insight = counts.struggled > counts.tried
+        ? `${counts.struggled} parents struggled — consider simplifying the ${subject} activity next time.`
+        : `Strong engagement! ${pct}% of families completed the ${subject} activity.`;
+      return { subject, tried: counts.tried, struggled: counts.struggled, pct, insight };
+    });
+
     res.json({ success: true, data: insights });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
