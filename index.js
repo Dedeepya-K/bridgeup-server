@@ -445,6 +445,6 @@ app.post('/api/teacher-reply', async (req, res) => {
   }
 });
 
-app.listen(process.env.PORT, () => {
-  console.log(`BridgeUp server running on port ${process.env.PORT}`);
+app.listen(process.env.PORT || 3000, () => {
+  console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
