@@ -715,6 +715,69 @@ Return ONLY the two lines, nothing else.`;
   }
 });
 
+// ─── COMMUNITY STATS ──────────────────────────────────────────────────────────
+app.get('/api/community-stats', async (req, res) => {
+  try {
+    const { data: recipients } = await supabase
+      .from('message_recipients').select('tried_activity, language, message_id');
+    const { data: messages } = await supabase
+      .from('messages').select('subject');
+
+    const totalActivities = recipients?.filter(r => r.tried_activity).length || 0;
+    const totalFamilies = new Set(recipients?.map(r => r.message_id)).size || 0;
+    const languages = new Set(recipients?.map(r => r.language)).size || 0;
+
+    const subjectCount = {};
+    messages?.forEach(m => { subjectCount[m.subject] = (subjectCount[m.subject] || 0) + 1; });
+    const topSubject = Object.entries(subjectCount).sort((a,b) => b[1]-a[1])[0]?.[0] || 'English';
+
+    res.json({ success: true, data: { totalActivities, totalFamilies, totalLanguages: languages, topSubject } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── EMOJI INSIGHT SUMMARY ────────────────────────────────────────────────────
+app.get('/api/emoji-insights/:teacherId', async (req, res) => {
+  try {
+    const { data: messages } = await supabase
+      .from('messages').select('id, subject').eq('teacher_id', req.params.teacherId);
+    if (!messages?.length) return res.json({ success: true, data: [] });
+
+    const messageIds = messages.map(m => m.id);
+    const { data: recipients } = await supabase
+      .from('message_recipients').select('message_id, feedback')
+      .in('message_id', messageIds).not('feedback', 'is', null);
+
+    const grouped = {};
+    recipients?.forEach(r => {
+      if (!grouped[r.message_id]) grouped[r.message_id] = { tried: 0, struggled: 0 };
+      if (r.feedback === 'tried') grouped[r.message_id].tried++;
+      if (r.feedback === 'struggled') grouped[r.message_id].struggled++;
+    });
+
+    const insights = [];
+    for (const [msgId, counts] of Object.entries(grouped)) {
+      const msg = messages.find(m => m.id === msgId);
+      const total = counts.tried + counts.struggled;
+      if (total > 0) {
+        const pct = Math.round((counts.tried / total) * 100);
+        let insight = '';
+        try {
+          const prompt = `${counts.tried} parents completed the ${msg?.subject} activity, ${counts.struggled} struggled. Write ONE actionable insight for the teacher in max 15 words. Be specific.`;
+          insight = (await curricuLLM(prompt)).replace(/^"|"$/g, '').trim();
+        } catch(e) {
+          insight = `${pct}% completion rate — ${counts.struggled > counts.tried ? 'consider simplifying next time' : 'strong engagement this week'}`;
+        }
+        insights.push({ subject: msg?.subject, tried: counts.tried, struggled: counts.struggled, pct, insight, messageId: msgId });
+      }
+    }
+    res.json({ success: true, data: insights });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
