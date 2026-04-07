@@ -194,6 +194,7 @@ Respond in EXACT JSON (no markdown):
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
 app.post('/api/translate', async (req, res) => {
   const { text, targetLanguage } = req.body;
   try {
@@ -775,6 +776,78 @@ app.get('/api/emoji-insights/:teacherId', async (req, res) => {
     });
 
     res.json({ success: true, data: insights });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+// ─── REMINDERS ────────────────────────────────────────────────────────────────
+app.post('/api/add-reminder', async (req, res) => {
+  const { parentId, type, title, date, note } = req.body;
+  try {
+    const { error } = await supabase.from('reminders').insert({
+      parent_id: parentId, type, title, date, note
+    });
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/reminders/:parentId', async (req, res) => {
+  try {
+    const { data } = await supabase.from('reminders').select('*')
+      .eq('parent_id', req.params.parentId)
+      .gte('date', new Date().toISOString().split('T')[0])
+      .order('date', { ascending: true });
+    res.json({ success: true, data: data || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/reminders/:id', async (req, res) => {
+  try {
+    await supabase.from('reminders').delete().eq('id', req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── APPOINTMENTS ─────────────────────────────────────────────────────────────
+app.post('/api/book-appointment', async (req, res) => {
+  const { parentId, parentName, childName, teacherId, appointmentType, preferredDate, preferredTime, note } = req.body;
+  try {
+    const { data, error } = await supabase.from('appointments').insert({
+      parent_id: parentId, parent_name: parentName, child_name: childName,
+      teacher_id: teacherId, appointment_type: appointmentType,
+      preferred_date: preferredDate, preferred_time: preferredTime, note, status: 'pending'
+    }).select().single();
+    if (error) throw error;
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/appointments/:parentId', async (req, res) => {
+  try {
+    const { data } = await supabase.from('appointments').select('*')
+      .eq('parent_id', req.params.parentId)
+      .order('preferred_date', { ascending: true });
+    res.json({ success: true, data: data || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/appointments/teacher/:teacherId', async (req, res) => {
+  try {
+    const { data } = await supabase.from('appointments').select('*')
+      .eq('teacher_id', req.params.teacherId)
+      .order('preferred_date', { ascending: true });
+    res.json({ success: true, data: data || [] });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
