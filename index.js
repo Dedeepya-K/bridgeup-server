@@ -503,6 +503,30 @@ app.get('/api/unengaged/:teacherId', async (req, res) => {
   }
 });
 
+app.post('/api/personalise-message', async (req, res) => {
+  const { messageContent, childName, childInterests, childStruggles, language } = req.body;
+  
+  const prompt = `A teacher sent this update: "${messageContent}"
+  
+This message is for the parent of ${childName}.
+${childName} loves: ${childInterests || 'not specified'}
+${childName} struggles with: ${childStruggles || 'not specified'}
+
+Write ONE warm sentence (max 20 words) starting with "${childName}" explaining exactly why THIS lesson matters for them specifically, connecting to their interests.
+Return ONLY the sentence, nothing else.`;
+
+  try {
+    let result = await curricuLLM(prompt);
+    result = result.replace(/^"|"$/g, '').trim();
+    if (language && language !== 'en') {
+      result = await azureTranslate(result, language);
+    }
+    res.json({ success: true, message: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
