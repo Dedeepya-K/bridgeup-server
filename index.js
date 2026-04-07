@@ -450,6 +450,22 @@ app.post('/api/teacher-reply', async (req, res) => {
   }
 });
 
+app.post('/api/explain-term', async (req, res) => {
+  const { term, language } = req.body;
+  const prompt = `Define this Australian school/curriculum term for a parent with no teaching background, in exactly 15 words or less, in plain simple English: "${term}"
+Return ONLY the definition. No labels, no JSON, no punctuation at start.`;
+  try {
+    let explanation = await curricuLLM(prompt);
+    explanation = explanation.replace(/^"|"$/g, '').trim();
+    if (language && language !== 'en') {
+      explanation = await azureTranslate(explanation, language);
+    }
+    res.json({ success: true, explanation });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
