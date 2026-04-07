@@ -6,14 +6,9 @@ const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'https://bridgeup-client-iwk1e4xu7-dedeepya-ks-projects.vercel.app',
-    'https://bridgeup-client.vercel.app'
-  ],
-  credentials: true
+  origin: '*',
+  credentials: false
 }));
-
 app.use(express.json());
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
