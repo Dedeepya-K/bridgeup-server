@@ -1011,6 +1011,36 @@ app.get('/api/parent-engagement-scores/:teacherId', async (req, res) => {
   }
 })
 
+app.post('/api/broadcast', async (req, res) => {
+  const { teacherId, teacherName, subject, content, urgent } = req.body;
+  try {
+    const { data: parents } = await supabase.from('profiles').select('*').eq('role', 'parent');
+    const { data: message, error } = await supabase.from('messages').insert({
+      teacher_id: teacherId, teacher_name: teacherName,
+      subject: subject || 'Important Notice',
+      raw_content: content, transformed_content: content,
+      at_home_tips: JSON.stringify([]), subject_area: 'General'
+    }).select().single();
+    if (error) throw error;
+
+    for (const parent of parents || []) {
+      let translatedContent = content;
+      if (parent.language !== 'en') {
+        try { translatedContent = await azureTranslate(content, parent.language); } catch(e) {}
+      }
+      const prefix = urgent ? (parent.language === 'hi' ? '🚨 तत्काल: ' : parent.language === 'zh-Hans' ? '🚨 紧急: ' : '🚨 URGENT: ') : '';
+      await supabase.from('message_recipients').insert({
+        message_id: message.id, parent_id: parent.id,
+        translated_content: prefix + translatedContent,
+        translated_tips: '', language: parent.language
+      });
+    }
+    res.json({ success: true, sentTo: parents?.length || 0 });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
