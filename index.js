@@ -1122,6 +1122,50 @@ app.get('/api/parent-activity/:teacherId', async (req, res) => {
   }
 });
 
+app.post('/api/naplan-band', async (req, res) => {
+  const { teacherId, studentName, subject, band, yearLevel, date, note } = req.body
+  try {
+    const { data, error } = await supabase.from('naplan_progress').insert({
+      teacher_id: teacherId, student_name: studentName,
+      subject, band: parseInt(band), year_level: yearLevel,
+      recorded_date: date || new Date().toISOString().split('T')[0], note
+    }).select().single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch(err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.get('/api/naplan-progress/:teacherId', async (req, res) => {
+  try {
+    const { data } = await supabase.from('naplan_progress').select('*')
+      .eq('teacher_id', req.params.teacherId)
+      .order('recorded_date', { ascending: true })
+    res.json({ success: true, data: data || [] })
+  } catch(err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.post('/api/naplan-band', async (req, res) => {
+  const { teacherId, studentName, subject, band, yearLevel, date, note } = req.body
+  try {
+    const { data, error } = await supabase.from('naplan_progress').insert({
+      teacher_id: teacherId, student_name: studentName,
+      subject, band: parseInt(band), year_level: yearLevel,
+      recorded_date: date || new Date().toISOString().split('T')[0], note
+    }).select().single()
+    if (error) throw error
+    res.json({ success: true, data })
+  } catch(err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.get('/api/naplan-progress/:teacherId', async (req, res) => {
+  try {
+    const { data } = await supabase.from('naplan_progress').select('*')
+      .eq('teacher_id', req.params.teacherId)
+      .order('recorded_date', { ascending: true })
+    res.json({ success: true, data: data || [] })
+  } catch(err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
