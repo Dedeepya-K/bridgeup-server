@@ -973,6 +973,44 @@ app.get('/api/badges/:parentId', async (req, res) => {
   }
 })
 
+app.get('/api/parent-engagement-scores/:teacherId', async (req, res) => {
+  try {
+    const { data: messages } = await supabase
+      .from('messages').select('id').eq('teacher_id', req.params.teacherId)
+    if (!messages?.length) return res.json({ success: true, data: [] })
+
+    const messageIds = messages.map(m => m.id)
+    const { data: parents } = await supabase
+      .from('profiles').select('id, name, child_name, language').eq('role', 'parent')
+    const { data: recipients } = await supabase
+      .from('message_recipients').select('parent_id, tried_activity, feedback, is_read')
+      .in('message_id', messageIds)
+    const { data: replies } = await supabase
+      .from('replies').select('parent_id, sentiment').in('message_id', messageIds)
+
+    const scores = parents?.map(parent => {
+      const parentRecipients = recipients?.filter(r => r.parent_id === parent.id) || []
+      const parentReplies = replies?.filter(r => r.parent_id === parent.id) || []
+      const tried = parentRecipients.filter(r => r.tried_activity).length
+      const replyCount = parentReplies.length
+      const readCount = parentRecipients.filter(r => r.is_read).length
+      const score = Math.min(100, (tried * 20) + (replyCount * 15) + (readCount * 5))
+      const level = score >= 80 ? 'High' : score >= 40 ? 'Medium' : 'Low'
+      const emoji = score >= 80 ? '🟢' : score >= 40 ? '🟡' : '🔴'
+      return {
+        parentId: parent.id, name: parent.name,
+        childName: parent.child_name, language: parent.language,
+        score, level, emoji, tried, replies: replyCount, read: readCount
+      }
+    }) || []
+
+    scores.sort((a, b) => b.score - a.score)
+    res.json({ success: true, data: scores })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
