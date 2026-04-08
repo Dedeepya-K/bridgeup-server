@@ -215,7 +215,8 @@ app.post('/api/send-message', async (req, res) => {
     }).select().single();
     if (error) throw error;
 
-    const { data: parents } = await supabase.from('profiles').select('*').eq('role', 'parent');
+    const { data: parents } = await supabase
+  .from('profiles').select('id, name, child_name, language, activity_visible').eq('role', 'parent');
     for (const parent of parents) {
       const { data: children } = await supabase.from('children').select('*').eq('parent_id', parent.id);
       const primaryChild = children?.[0];
@@ -1011,6 +1012,19 @@ app.get('/api/parent-engagement-scores/:teacherId', async (req, res) => {
   }
 })
 
+app.post('/api/update-activity-visibility', async (req, res) => {
+  const { parentId, visible } = req.body;
+  try {
+    await supabase.from('profiles').update({ activity_visible: visible }).eq('id', parentId);
+    if (!visible) {
+      await supabase.from('parent_activity').delete().eq('parent_id', parentId);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.post('/api/broadcast', async (req, res) => {
   const { teacherId, teacherName, subject, content, urgent } = req.body;
   try {
@@ -1044,6 +1058,11 @@ app.post('/api/broadcast', async (req, res) => {
 app.post('/api/track-activity', async (req, res) => {
   const { parentId } = req.body;
   try {
+    const { data: parentProfile } = await supabase
+      .from('profiles').select('activity_visible').eq('id', parentId).single();
+    if (parentProfile?.activity_visible === false) {
+      return res.json({ success: true, tracked: false });
+    }
     const { data: existing } = await supabase
       .from('parent_activity').select('*').eq('parent_id', parentId).single();
     if (existing) {
@@ -1054,7 +1073,7 @@ app.post('/api/track-activity', async (req, res) => {
       await supabase.from('parent_activity')
         .insert({ parent_id: parentId, last_seen: new Date().toISOString(), login_count: 1 });
     }
-    res.json({ success: true });
+    res.json({ success: true, tracked: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1067,7 +1086,7 @@ app.get('/api/parent-activity/:teacherId', async (req, res) => {
     const { data: activity } = await supabase
       .from('parent_activity').select('*');
 
-    const result = parents?.map(p => {
+    const result = parents?.filter(p => p.activity_visible !== false).map(p => {
       const act = activity?.find(a => a.parent_id === p.id);
       const lastSeen = act?.last_seen ? new Date(act.last_seen) : null;
       const now = new Date();
