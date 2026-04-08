@@ -875,6 +875,104 @@ app.post('/api/update-language', async (req, res) => {
   }
 });
 
+app.get('/api/badges/:parentId', async (req, res) => {
+  try {
+    const { data: recipients } = await supabase
+      .from('message_recipients')
+      .select('tried_activity, feedback, created_at')
+      .eq('parent_id', req.params.parentId)
+
+    const { data: replies } = await supabase
+      .from('replies')
+      .select('created_at')
+      .eq('parent_id', req.params.parentId)
+
+    const triedCount = recipients?.filter(r => r.tried_activity).length || 0
+    const repliesCount = replies?.length || 0
+
+    const firstActivity = recipients?.find(r => r.tried_activity)
+    const firstReply = replies?.[0]
+    const oldestDate = recipients?.length ? new Date(Math.min(...recipients.map(r => new Date(r.created_at)))) : null
+    const now = new Date()
+    const weeksSinceFirst = oldestDate ? Math.floor((now - oldestDate) / (1000 * 60 * 60 * 24 * 7)) : 0
+
+    const badges = []
+
+    badges.push({
+      id: 'first_steps',
+      emoji: '🌟',
+      title: 'First Steps',
+      description: 'Joined BridgeUp and started the journey',
+      earned: true,
+      color: 'bg-yellow-50 border-yellow-300 text-yellow-800'
+    })
+
+    if (triedCount >= 1) badges.push({
+      id: 'activity_starter',
+      emoji: '✅',
+      title: 'Activity Starter',
+      description: 'Tried your first at-home activity',
+      earned: true,
+      color: 'bg-green-50 border-green-300 text-green-800'
+    })
+
+    if (triedCount >= 3) badges.push({
+      id: 'active_learner',
+      emoji: '📚',
+      title: 'Active Learner',
+      description: 'Completed 3 at-home activities',
+      earned: true,
+      color: 'bg-blue-50 border-blue-300 text-blue-800'
+    })
+
+    if (triedCount >= 5) badges.push({
+      id: 'learning_champion',
+      emoji: '🏆',
+      title: 'Learning Champion',
+      description: 'Completed 5+ at-home activities',
+      earned: true,
+      color: 'bg-purple-50 border-purple-300 text-purple-800'
+    })
+
+    if (repliesCount >= 1) badges.push({
+      id: 'communicator',
+      emoji: '💬',
+      title: 'Communicator',
+      description: 'Sent your first message to the teacher',
+      earned: true,
+      color: 'bg-teal-50 border-teal-300 text-teal-800'
+    })
+
+    if (repliesCount >= 3) badges.push({
+      id: 'great_communicator',
+      emoji: '🗣️',
+      title: 'Great Communicator',
+      description: 'Sent 3+ messages to your teacher',
+      earned: true,
+      color: 'bg-indigo-50 border-indigo-300 text-indigo-800'
+    })
+
+    if (weeksSinceFirst >= 1) badges.push({
+      id: 'community_star',
+      emoji: '🌍',
+      title: 'Community Star',
+      description: 'Engaged with BridgeUp for a week+',
+      earned: true,
+      color: 'bg-orange-50 border-orange-300 text-orange-800'
+    })
+
+    const lockedBadges = []
+    if (triedCount < 1) lockedBadges.push({ id: 'activity_starter', emoji: '✅', title: 'Activity Starter', description: `Try your first activity (0/1)`, earned: false })
+    if (triedCount < 3) lockedBadges.push({ id: 'active_learner', emoji: '📚', title: 'Active Learner', description: `Complete 3 activities (${triedCount}/3)`, earned: false })
+    if (triedCount < 5) lockedBadges.push({ id: 'learning_champion', emoji: '🏆', title: 'Learning Champion', description: `Complete 5 activities (${triedCount}/5)`, earned: false })
+    if (repliesCount < 3) lockedBadges.push({ id: 'great_communicator', emoji: '🗣️', title: 'Great Communicator', description: `Send 3 messages (${repliesCount}/3)`, earned: false })
+
+    res.json({ success: true, earned: badges, locked: lockedBadges, stats: { triedCount, repliesCount } })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
