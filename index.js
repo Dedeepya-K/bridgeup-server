@@ -1041,6 +1041,68 @@ app.post('/api/broadcast', async (req, res) => {
   }
 });
 
+app.post('/api/track-activity', async (req, res) => {
+  const { parentId } = req.body;
+  try {
+    const { data: existing } = await supabase
+      .from('parent_activity').select('*').eq('parent_id', parentId).single();
+    if (existing) {
+      await supabase.from('parent_activity')
+        .update({ last_seen: new Date().toISOString(), login_count: (existing.login_count || 1) + 1 })
+        .eq('parent_id', parentId);
+    } else {
+      await supabase.from('parent_activity')
+        .insert({ parent_id: parentId, last_seen: new Date().toISOString(), login_count: 1 });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/parent-activity/:teacherId', async (req, res) => {
+  try {
+    const { data: parents } = await supabase
+      .from('profiles').select('id, name, child_name, language').eq('role', 'parent');
+    const { data: activity } = await supabase
+      .from('parent_activity').select('*');
+
+    const result = parents?.map(p => {
+      const act = activity?.find(a => a.parent_id === p.id);
+      const lastSeen = act?.last_seen ? new Date(act.last_seen) : null;
+      const now = new Date();
+      const diffHours = lastSeen ? Math.floor((now - lastSeen) / (1000 * 60 * 60)) : null;
+      const diffDays = lastSeen ? Math.floor(diffHours / 24) : null;
+
+      let status = 'Never logged in';
+      let statusColor = 'gray';
+      if (diffHours !== null) {
+        if (diffHours < 1) { status = 'Active now'; statusColor = 'green'; }
+        else if (diffHours < 24) { status = `${diffHours}h ago`; statusColor = 'green'; }
+        else if (diffDays < 3) { status = `${diffDays}d ago`; statusColor = 'yellow'; }
+        else if (diffDays < 7) { status = `${diffDays}d ago`; statusColor = 'orange'; }
+        else { status = `${diffDays}d ago`; statusColor = 'red'; }
+      }
+
+      return {
+        parentId: p.id, name: p.name, childName: p.child_name,
+        language: p.language, lastSeen: act?.last_seen || null,
+        loginCount: act?.login_count || 0, status, statusColor
+      }
+    }) || [];
+
+    result.sort((a, b) => {
+      if (!a.lastSeen) return 1;
+      if (!b.lastSeen) return -1;
+      return new Date(b.lastSeen) - new Date(a.lastSeen);
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
