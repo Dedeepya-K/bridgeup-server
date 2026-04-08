@@ -846,15 +846,15 @@ app.get('/api/appointments/:parentId', async (req, res) => {
 
 app.get('/api/appointments/teacher/:teacherId', async (req, res) => {
   try {
-    const { data } = await supabase.from('appointments').select('*')
+    const { data } = await supabase.from('appointments')
+      .select('*')
       .eq('teacher_id', req.params.teacherId)
-      .order('preferred_date', { ascending: true });
+      .order('created_at', { ascending: false });
     res.json({ success: true, data: data || [] });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
-
 app.post('/api/update-appointment-status', async (req, res) => {
   const { appointmentId, status } = req.body;
   try {
@@ -864,6 +864,17 @@ app.post('/api/update-appointment-status', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+app.post('/api/update-language', async (req, res) => {
+  const { parentId, language } = req.body;
+  try {
+    await supabase.from('profiles').update({ language }).eq('id', parentId);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.listen(process.env.PORT || 3000, () => {
   console.log(`BridgeUp server running on port ${process.env.PORT || 3000}`);
 });
