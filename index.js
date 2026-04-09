@@ -326,12 +326,12 @@ app.get('/api/engagement/:teacherId', async (req, res) => {
     if (!messages?.length) return res.json({ success: true, data: { totalMessages: 0, totalReplies: 0, totalParents: 0, sentiments: {}, languages: {}, highUrgency: 0, triedActivity: 0 } });
     const messageIds = messages.map(m => m.id);
     const { data: replies } = await supabase.from('replies').select('sentiment, urgency').in('message_id', messageIds);
-    const { data: recipients } = await supabase.from('message_recipients').select('is_read, language, tried_activity').in('message_id', messageIds);
+    const { data: recipients } = await supabase.from('message_recipients').select('is_read, language, tried_activity, parent_id').in('message_id', messageIds);
     const sentiments = { positive: 0, question: 0, concern: 0 };
     replies?.forEach(r => { if (r.sentiment) sentiments[r.sentiment] = (sentiments[r.sentiment] || 0) + 1; });
     const languages = {};
     recipients?.forEach(r => { languages[r.language] = (languages[r.language] || 0) + 1; });
-    res.json({ success: true, data: { totalMessages: messages.length, totalReplies: replies?.length || 0, totalParents: recipients?.length || 0, sentiments, languages, highUrgency: replies?.filter(r => r.urgency === 'high').length || 0, triedActivity: recipients?.filter(r => r.tried_activity).length || 0 } });
+    res.json({ success: true, data: { totalMessages: messages.length, totalReplies: replies?.length || 0, totalParents: [...new Set(recipients?.map(r => r.parent_id) || [])].length, sentiments, languages, highUrgency: replies?.filter(r => r.urgency === 'high').length || 0, triedActivity: recipients?.filter(r => r.tried_activity).length || 0 } });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -555,7 +555,16 @@ app.get('/api/friction-forecast/:teacherId', async (req, res) => {
         }
       }
     }
-    res.json({ success: true, data: forecasts });
+    const merged = {}
+forecasts.forEach(f => {
+  if (!merged[f.subject]) {
+    merged[f.subject] = f
+  } else {
+    merged[f.subject].count += f.count
+    merged[f.subject].percentage = Math.max(merged[f.subject].percentage, f.percentage)
+  }
+})
+res.json({ success: true, data: Object.values(merged) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -807,11 +816,19 @@ app.post('/api/send-reminder', async (req, res) => {
 
 app.get('/api/reminders/:parentId', async (req, res) => {
   try {
-    const { data } = await supabase.from('reminders').select('*')
+    const { data: targeted } = await supabase.from('reminders').select('*')
       .eq('target_parent_id', req.params.parentId)
       .gte('date', new Date().toISOString().split('T')[0])
       .order('date', { ascending: true });
-    res.json({ success: true, data: data || [] });
+
+const { data: broadcast } = await supabase.from('reminders').select('*')
+      .is('target_parent_id', null)
+      .gte('date', new Date().toISOString().split('T')[0])
+      .order('date', { ascending: true });
+
+const combined = [...(targeted || []), ...(broadcast || [])]
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+    res.json({ success: true, data: combined });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
